@@ -2,7 +2,7 @@
 
 The purpose of this repo is to play around with libsnark, in order for me to get familiar with this library.
 
-In: [/src/cubic_gadget](https://github.com/AntoineRondelet/libsnark-playground/tree/master/src) I propose an implementation of a gagdet that follows [V. Buterin's article about Quadratic Arithmetic Programs](https://medium.com/@VitalikButerin/quadratic-arithmetic-programs-from-zero-to-hero-f6d558cea649).
+In: [/src/cubic_gadget](https://github.com/AntoineRondelet/libsnark-playground/blob/master/src/cubic_gadget.cpp) I propose an implementation of a gagdet that follows [V. Buterin's article about Quadratic Arithmetic Programs](https://medium.com/@VitalikButerin/quadratic-arithmetic-programs-from-zero-to-hero-f6d558cea649).
 
 ## Disclaimer
 
