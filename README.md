@@ -188,7 +188,11 @@ Additional explanations on how to build the gadget are given directly in the cod
 
 ## Compile the project
 
-In order to compile the project, run:
+1. Fetch recursively the dependencies: 
+```
+git submodule update --init --recursive
+```
+2. compile the project:
 ```
 mkdir build
 cd build
