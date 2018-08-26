@@ -115,20 +115,28 @@ FieldT field_element_from_bits(libsnark::protoboard<FieldT> &pb, libff::bit_vect
     return field_value;
 }
 
+/*
+ * This gadget is made ONLY to prove the knowledge of x such that: x**3 + x + 5 = 35
+ **/
 template<typename FieldT>
 class cubic_gadget : public libsnark::gadget<FieldT> {
 public:
     libsnark::protoboard<FieldT> &pb;
     const std::string annotation_prefix="";
 
-    // Input variable: solution x to (E)
+    // Input variable: solution x to (E), such that F(x) = 35
+    // Where F(x) is defined as F(x) = A*x**3 + B*x**2 + C*x + D = Right_part
+    // where A = 1, B = 0, C = 1, D = 5, and Right_part = 35
+    // Note:
+    // The coefficients of the polynomial, along with the Right_part are HARDCODED into this gadget)
+    // Further gadgets will illustrate how to do to build a circuit for dynamic values for the coeffs of the polynomial
     const libsnark::pb_variable<FieldT> &sol_x;
 
     // vector X = [x0, x1, x2, x3, x4] of variables allocated on the protoboard
     libsnark::pb_variable_array<FieldT> vars;
     
-    libsnark::pb_variable<FieldT> final_coeff;
-    libsnark::pb_variable<FieldT> result;
+    libsnark::pb_variable<FieldT> coeff_D;
+    libsnark::pb_variable<FieldT> right_part;
     cubic_gadget(
         libsnark::protoboard<FieldT> &in_pb,
         const libsnark::pb_variable<FieldT> &in_sol_x, // in_sol_x represents the only input variable (x_0)
@@ -143,59 +151,51 @@ public:
         vars.allocate(pb, 5, FMT(this->annotation_prefix, " vars")); // size(X) = 5 (5 variables)
 
         // Value of 5 (coeff C)
-        libsnark::pb_variable_array<FieldT> final_coeff_bits;
-        libff::bit_vector coeff_bits = {1, 0, 1}; // 5: BE CAREFUL with the endianness !!!
-        final_coeff_bits.allocate(pb, coeff_bits.size(), "final_coeff_bits");
-        final_coeff_bits.fill_with_bits(pb, coeff_bits);
-        auto coeff_value = final_coeff_bits.get_field_element_from_bits(pb);
-        final_coeff.allocate(pb);
-        pb.val(final_coeff) = coeff_value;
+        FieldT coeff_D_value = field_element_from_bits(pb, {1, 0, 1});
+        coeff_D.allocate(pb);
+        pb.val(coeff_D) = coeff_D_value;
 
         // Value of 35 (result)
-        libsnark::pb_variable_array<FieldT> result_bits;
-        libff::bit_vector res_bits = {1, 1, 0, 0, 0, 1}; // 35: BE CAREFUL with the endianness !!!
-        result_bits.allocate(pb, res_bits.size(), "result_bits");
-        result_bits.fill_with_bits(pb, res_bits);
-        auto res_value = result_bits.get_field_element_from_bits(pb);
-        result.allocate(pb);
-        pb.val(result) = res_value;
+        FieldT right_part_value = field_element_from_bits(pb, {1, 1, 0, 0, 0, 1});
+        right_part.allocate(pb);
+        pb.val(right_part) = right_part_value;
     }
 
     // Creates all constraints on the libsnark::protoboard
     void generate_r1cs_constraints() {
-        //x0 * x0 = x1
+        // x0 * x0 = x1
         libsnark::r1cs_constraint<FieldT> constraint1 = libsnark::r1cs_constraint<FieldT>(
             vars[0],
             vars[0],
             vars[1]
         );
 
-        //x1 * x0 = x2
+        // x1 * x0 = x2
         libsnark::r1cs_constraint<FieldT> constraint2 = libsnark::r1cs_constraint<FieldT>(
             vars[1],
             vars[0],
             vars[2]
         );
 
-        //x3 * 1 = x2 + x0
+        // x3 * 1 = x2 + x0
         libsnark::r1cs_constraint<FieldT> constraint3 = libsnark::r1cs_constraint<FieldT>(
             vars[3],
             FieldT::one(),
             vars[2] + vars[0]
         );
 
-        //x4 * 1 = x3 + 5
+        // x4 * 1 = x3 + 5
         libsnark::r1cs_constraint<FieldT> constraint4 = libsnark::r1cs_constraint<FieldT>(
             vars[4],
             FieldT::one(),
-            vars[3] + pb.val(final_coeff)
+            vars[3] + pb.val(coeff_D)
         );
 
-        //x4 * 1 = 35 (constraint on the value of the output)
+        // x4 * 1 = 35 (constraint on the value of the output)
         libsnark::r1cs_constraint<FieldT> constraint5 = libsnark::r1cs_constraint<FieldT>(
             vars[4],
             FieldT::one(),
-            pb.val(result)
+            pb.val(right_part)
         );
 
         pb.add_r1cs_constraint(constraint1);
@@ -212,6 +212,6 @@ public:
         pb.val(vars[1]) = pb.val(vars[0]) * pb.val(vars[0]);
         pb.val(vars[2]) = pb.val(vars[1]) * pb.val(vars[0]);
         pb.val(vars[3]) = pb.val(vars[2]) + pb.val(vars[0]);
-        pb.val(vars[4]) = pb.val(vars[3]) + pb.val(final_coeff);
+        pb.val(vars[4]) = pb.val(vars[3]) + pb.val(coeff_D);
     }
 };
