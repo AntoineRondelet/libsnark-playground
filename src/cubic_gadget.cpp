@@ -1,123 +1,134 @@
-// Prove that we know the solution to the equation x**3 + x + 5 == 35 (answer is 3)
-
-// The complete R1CS
-
 /*
-From Vitalik's medium post
-- Problem: we want to prove that we know the solution of the cubic equation: x**3+x+5 == 35
-
-We state the problem in the form of a program, that we then flatten and transform into an arithmetic circuit and R1CS
-We obtain a variable vector X = {x_0, x_1, x_2, x_3, x_4}, where x_0 = "dummy variable one", and x_4 = "dummy variable out"
-
-We have a circuit with 4 gates, thus we have 4 constraints to satisfy. The R1CS contains 4 constraints in the form:
-s.a * s.b - s.c = 0 that need to be satisfied.
-
-sym_1 = x * x    ==> x1 = x0 * x0
-y = sym_1 * x    ==> x2 = x1 * x0
-sym_2 = y + x    ==> x3 = x2 + x0
-~out = sym_2 + 5 ==> x4 = x3 + 5
-
- * A R1CS constraint is a formal expression of the form
- *
- *                < A , X > * < B , X > = < C , X > ,
- *
- * where X = (x_0,x_1,...,x_m) is a vector of formal variables and A,B,C each
- * consist of 1+m elements in <FieldT>.
- *
- * A R1CS constraint is used to construct a R1CS constraint system.
-
-
-A linear combination represents a formal expression of the form "sum_i coeff_i * x_{index_i}"
-Thus a linear combination is something like: c_1 * x_1 + c_2 * x_2 + ... + c_n * x_n
-
-A r1cs_constraint takes 3 linear combinations a, b, and c:
-```
-    r1cs_constraint(const linear_combination<FieldT> &a, // A linear combination is the result of a dot product
-                    const linear_combination<FieldT> &b,
-                    const linear_combination<FieldT> &c
-    );
-```
-Thus, we can see that each args of the r1cs_constraint is encoding one of the dot product:
-    - The &a represents the dot product < A , X >
-    - The &b represents the dot product < B , X >
-    - The &c represents the dot product < C , X >
-
-We obtain the following R1C for the gate1 (x2 = x1 * x1)
-X: (x0, x1, x2, x3, x4) --> size 5 because ONE is not included
-A: [0, 1, 0, 0, 0, 0]   --> size 6 because the first term refers to the ONE variable
-B: [0, 1, 0, 0, 0, 0]   --> size 6 because the first term refers to the ONE variable
-C: [0, 0, 1, 0, 0, 0]   --> size 6 because the first term refers to the ONE variable
-
-Verification of the equality for the R1C:
-< A , X > * < B , X > = dot_product([0, 1, 0, 0, 0, 0], [ONE, X]) = x0 * x0
-< C , X > = x1
-
-Thus < A , X > * < B , X > = < C , X > ==> x0 * x0 = x1 which corresponds to the first flattened gate
-Thus, the first constraint of the libsnark::protoboard will be:
-
-r1cs_constraint<FieldT> firstGate = r1cs_constraint<FieldT>(
-                    < A , X >,
-                    < B , X >,
-                    < C , X >)
-
-which gives:
-
-r1cs_constraint<FieldT> firstGate = r1cs_constraint<FieldT>(
-                    x0,
-                    x0,
-                    x1)
-
-This first constraint is then added to the libsnark::protoboard (to the R1CS basically)
-
-pb.add_r1cs_constraint(firstGate);
-
-We follow the same approach for the other gates, and we add the corresponding constraints to the R1C system (libsnark::protoboard).
-This results in the generate_r1cs_constraints() function.
-
-A call to the function pb.num_constraints() should return 4 in our case (because the circuit has 4 gates)
-(see the number of calls to pb.add_r1cs_constraint() in the implementation of the generate_r1cs_constraints() function)
-
-**NOTE:** If we were to create a gadget X that uses the cubic_gadget, we'd do cubic_gadget->generate_r1cs_constraints()
-in the generate_r1cs_constraints() function of the gadget X, and then define the constraints proper to X.
-In fact, the generate_r1cs_constraints() function is basically the encoding of the circuit for a given problem.
-Thus, we can use it as a "black box" in future uses. If the given problem does not change, then the circuit 
-remains the same, and we can just use it as it is.
-
-The witness for this R1CS is: [1, 3, 35, 9, 27, 30]
-It is the assignment to all the variables, including input, output and internal variables.
-
-- Gadget constructor: Basically in the gadget constructor, we allocate the variables on the libsnark::protoboard
-- In the generate_r1cs_constraints() function, we generate the constraints using the variables allocated on the libsnark::protoboard
-- In the generate_witness() we generate a witness given an input (this witness has to respect the constraints defined in the generate_r1cs_constraints() function)
-
-Partial assignment of the variable vector:
-[1, S_0, S_1, S_2, S_3, 35], where the S means that the value is secret
-The full assignment of the variable vector is:
-[1, 3, 9, 27, 30, 35]. This is the witness (the S_i are basically revealed and satisfy the circuit)
-
-
-Circuits/R1CS: Each gate is a mathematical constraint and each wire is a variable
-*/
+ * This gadget proves that one knows the solution to the equation: (E) x**3 + x + 5 == 35 (answer is 3)
+ * without revealing the answer. 
+ * This gadget aims to follow the serie of articles written by V. Buterin about zk-SNARKS
+ * See: https://medium.com/@VitalikButerin/quadratic-arithmetic-programs-from-zero-to-hero-f6d558cea649
+ * 
+ * Below, I'll go again through the different steps needed to write the gadget to prove the solution of (E).
+ * 
+ * Problem: we want to prove that we know the solution of the cubic equation: (E) x**3+x+5 == 35 
+ * without revealing the solution to the network.
+ * 
+ * This problem can be formulated into a program, and is then flattened:
+ * Flattening converts a program into a sequence of statements that are of one of the forms:
+ * - x = y 
+ * - x = y (op) z
+ * Where y can be a variable or a number and (op) is an operator (Note: Arithmetic operations are done
+ * over a field, thus, we can "do everything we want", we have an addition, multiplication, subtraction, and division)
+ * 
+ * The flattened version of the program is used to build a circuit, which has gates and wires.
+ * Basically gates are operators, and wires are variables
+ * 
+ * The flattened version of the program to verify (E) is given by:
+ * - x1 = x0 * x0 -> Gives: x1 = x0**2
+ * - x2 = x1 * x0 -> Gives: x2 = x0**3 (we have the first term of the left side of (E))
+ * - x3 = x2 + x0 -> Gives: x0**3 + x0 (we have thre first + second term of the left side of (E))
+ * - x4 = x3 + 5  -> Gives: x0**3 + x0 + 5 (which is the left side of ==)
+ * Note, a last statement can be added in order to respect the condition "== 35"
+ * - x4 = 35
+ * 
+ * At this point, we have the vector of variables: X = {x_0, x_1, x_2, x_3, x_4}
+ * 
+ * From the following flattened code, we can see that each line can be seen as wires entering a gate (right side of the equality)
+ * which results in an output wire (left side).
+ * 
+ * The next step consists in "encoding" this circuit into a set of constraints. In order to do so,
+ * each statement of the flattened code (which is basically a gate in the corresponding circuit)
+ * will be written as a R1CS constraint (Rank 1 Constraint System), which is in the form:
+ * < A , X > * < B , X > = < C , X >, where < Y , Z > represents the dot product of the vectors Z, and Y.
+ * Here we have seen that X = {x_0, x_1, x_2, x_3, x_4} (see above) is the vector of variables,
+ * and A, B, and C, are vectors of elements in the field we work in.
+ * 
+ * From this, we can see that each constraint is composed of 3 linear combinations. In fact, if we note:
+ * - linear combnation a = < A , X > 
+ * - linear combnation b = < B , X > 
+ * - linear combnation c = < C , X > 
+ * Then each constraint of the R1CS becomes: a * b = c
+ * 
+ * We can see this by looking at the r1cs_constraint class which contains 3 linear combinations 
+ * attributes: a, b, and c:
+ * ```
+ * r1cs_constraint(const linear_combination<FieldT> &a,
+ *                 const linear_combination<FieldT> &b,
+ *                 const linear_combination<FieldT> &c
+ * );
+ * ```
+ * 
+ * With this in mind, we can begin to build our R1CS from the flattened code above, by 
+ * building each constraint after the other.
+ * 
+ * Here is the R1C for the first gate g1: x1 = x0 * x0
+ * 
+ * For the first gate, we have:
+ * X = [ONE]  A = [0]  B = [0]  C = [0]
+ *     [x0]       [1]      [1]      [0]
+ *     [x1]       [0]      [0]      [1]
+ *     [x2]       [0]      [0]      [0]
+ *     [x3]       [0]      [0]      [0]
+ *     [x4]       [0]      [0]      [0]
+ * 
+ * Which results in:
+ * - linear_combination a = < A , X > = x0
+ * - linear_combination b = < B , X > = x0
+ * - linear_combination c = < C , X > = x1
+ * 
+ * Thus, in the "language of Libsnark", the first constraint is written:
+ * r1cs_constraint<FieldT> firstGate = r1cs_constraint<FieldT>(
+ *      x0, // a
+ *      x0, // b
+ *      x1  // c
+ * );
+ * 
+ * Then, this constraint (R1C: Rank 1 constraint) is added to the protoboard in order to be part of the
+ * Rank 1 Constraint system. To do so, we do:
+ * pb.add_r1cs_constraint(firstGate);
+ * Where, pb, is the protoboard of the gadget.
+ * 
+ * We follow the same approach for the other gates, and we add the corresponding constraints 
+ * to the protoboard to form the R1CS.
+ * Adding all of these constraints, in often done in the: generate_r1cs_constraints() function of the gadget.
+ * 
+ * 
+ * Note: We have seen that a gadget could be seen as a circuit. In order to build complex circuits, it is 
+ * common to use gadgets inside gadgets. If this is the case, then, we can use the "embedded" gadget as 
+ * a black box, and just call: embedded_gagdet->generate_r1cs_constraints(); inside the function generate_r1cs_constraints()
+ * of the gagdet we define.
+ * 
+ * In sum, we have just seen how to "transform" our flattened code into a R1CS, in a gadget, that we can now use as a black 
+ * box for further use.
+ * 
+ * Having a generate_r1cs_constraints() function is, however, not enough to be useful. Other functions need to be implemented:
+ * - Gadget constructor: Basically in the gadget constructor, we allocate the variables on the protoboard.
+ * - generate_r1cs_constraints(): We generate the set of constraints using the variables allocated on the protoboard
+ * - generate_witness(): We generate a witness given an input. The witness is a valid assignment to all the variables, including input, output and internal variables (ie: wires in the circuit).
+ * It has to respect the constraints defined in the generate_r1cs_constraints() function.
+ **/ 
 
 #include <libsnark/gadgetlib1/gadget.hpp>
 
 template<typename FieldT>
+FieldT field_element_from_bits(libsnark::protoboard<FieldT> &pb, libff::bit_vector field_element_bits) {
+    libsnark::pb_variable_array<FieldT> array_bits;
+    array_bits.allocate(pb, field_element_bits.size(), "final_coeff_bits");
+    array_bits.fill_with_bits(pb, field_element_bits);
+    auto field_value = array_bits.get_field_element_from_bits(pb);
+    return field_value;
+}
+
+template<typename FieldT>
 class cubic_gadget : public libsnark::gadget<FieldT> {
 public:
-    //static std::vector<FieldT> polynomial_coefficients; 
-    // For now we do a gadget that works only for the polynomial x**3 + x + 5 == 35
-    // After that we can imagine expanding the code to make it work for all types of equations:
-    // k.x**3 + l.x**2 + m.x + n = p, where k,m,l,n and p are field elements/binary coefficients
-    // And the gadget can be used to prove that we know a solution to the equation
-    //static FieldT polynomial_degree; // Degree of the polynomial (3 here)
-    //static FieldT right_term; // 35 here, the term on the right of the equation we build the snark for
-    //const libsnark::pb_variable<FieldT> &sol_x; // Secret solution (x = 3) to the equation: x**3 + x + 5 == 35
     libsnark::protoboard<FieldT> &pb;
     const std::string annotation_prefix="";
-    libsnark::pb_variable_array<FieldT> vars; // All variables that are allocated on the libsnark::protoboard (this is the vector X = [x0, x1, x2, x3, x4])
+
+    // Input variable: solution x to (E)
+    const libsnark::pb_variable<FieldT> &sol_x;
+
+    // vector X = [x0, x1, x2, x3, x4] of variables allocated on the protoboard
+    libsnark::pb_variable_array<FieldT> vars;
+    
     libsnark::pb_variable<FieldT> final_coeff;
     libsnark::pb_variable<FieldT> result;
-    const libsnark::pb_variable<FieldT> &sol_x; // Input variable
     cubic_gadget(
         libsnark::protoboard<FieldT> &in_pb,
         const libsnark::pb_variable<FieldT> &in_sol_x, // in_sol_x represents the only input variable (x_0)
@@ -129,9 +140,7 @@ public:
         vars(),
         annotation_prefix(in_annotation_prefix)
     {
-        // Define constructor here:
-        // Aims to allocate the variables on the libsnark::protoboard
-        vars.allocate(pb, 5, FMT(this->annotation_prefix, " vars")); // 5 because size(X) = 5 (5 variables)
+        vars.allocate(pb, 5, FMT(this->annotation_prefix, " vars")); // size(X) = 5 (5 variables)
 
         // Value of 5 (coeff C)
         libsnark::pb_variable_array<FieldT> final_coeff_bits;
