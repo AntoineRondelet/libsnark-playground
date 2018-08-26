@@ -1,4 +1,19 @@
-# Using Libsnark: Building a gadget
+# Using Libsnark: Building a gadget step by step
+
+The purpose of this repo is to play around with libsnark, in order for me to get familiar with this library.
+
+In: [/src/cubic_gadget](https://github.com/AntoineRondelet/libsnark-playground/tree/master/src) I propose an implementation of a gagdet that follows [V. Buterin's article about Quadratic Arithmetic Programs](https://medium.com/@VitalikButerin/quadratic-arithmetic-programs-from-zero-to-hero-f6d558cea649).
+
+## Disclaimer
+
+**[WARNING] DO NOT use any of these gadgets into production**.
+
+I'm always happy to have feedback or contributions if you spot mistakes, or dummy things hat could be improved.
+
+## References
+
+- https://github.com/scipr-lab/libsnark
+- https://medium.com/@VitalikButerin/quadratic-arithmetic-programs-from-zero-to-hero-f6d558cea649
 
 ## Reminder about zkSNARKs
 
@@ -28,12 +43,13 @@ Corresponding files:
 
 ## Use of libsnark
 
-1. Express the statements to be proved as an R1CS (or any of the other languages supported by libsnark, such as arithmetic circuits, Boolean circuits, or TinyRAM).
-2. Use libsnark's generator algorithm to create the public parameters for this statement (once and for all).
-3. Use libsnark's prover algorithm to create proofs of true statements about the satisfiability of the R1CS.
-4. Use libsnark's verifier algorithm to check proofs for alleged statements.
+1. Express the statements to be proved as an R1CS (a set of constraints)
+2. Use the **generator algorithm** to create the public parameters for this statement ("trusted setup" done once and for all)
+3. Use the **prover algorithm** to create proofs of true statements about the satisfiability of the R1CS
+4. Use the **verifier algorithm** to check proofs for alleged statements
 
-Note: Libsnark provides libraries for conveniently constructing R1CS instances out of reusable "gadgets". Thus, gadget, are "just" reusable R1CS. When we know that a R1CS, is "the translation" of an arithmetic circuit into a set of constraints on vectors, we see that the use of gadgets, enables to "build more complex circuits from other circuits".
+**Note:** Libsnark provides libraries for constructing R1CS instances via reusable "gadgets". 
+Gadgets, are "just" reusable R1CS. When we know that a R1CS, is "the translation" of an arithmetic circuit into a set of constraints on vectors, we see that the use of gadgets, enables to "build more complex circuits from other circuits".
 Using gadgets, enables to easily build complex instances of R1CS.
 
 ## Notes about the code
@@ -63,7 +79,9 @@ public:
 };
 ```
 
-This piece of code reminds us that a variable represents an expression of the form `x_{index}`. In fact, we know, that after the "flattening" process, we created a lot of variables from the reduction of the program, and as soon as we deal with arithmetic circuits or R1CS, the witness is a vector of variables. Thus, if we have, `X` being the assignment to all variables, we have `X = vec<1, x_1, x_2, ..., X_n>`, with `n` the size of the vector/numnber of variables.
+This piece of code reminds us that a variable represents an expression of the form `x_{index}`. 
+In fact, we know, that after the "flattening" process, we created a lot of variables from the reduction of the program, and as soon as we deal with arithmetic circuits or R1CS, the witness is a vector of variables. 
+Thus, if we have, `X` being the assignment to all variables, we have `X = vec<1, x_1, x_2, ..., X_n>`, with `n` the size of the vector/numnber of variables.
 
 Moreover, we see that if we use the `*` operation of the variable class, we obtain a `linear_term`, in the form `field_element * x_{index}`. If we use the `+` operator, however, we obtain a `linear_combination`.
 
@@ -81,7 +99,8 @@ public:
 };
 ```
 
-The code of the class, tells us that a `pb_variable`, is basically a wrapper around the `variable` class above, that we can allocate on a `protoboard`. We can allocate `pb_variables` on a protoboard, this will add a new variable at the next available index in the protoboard.
+The code of the class, tells us that a `pb_variable`, is basically a wrapper around the `variable` class above, that we can allocate on a `protoboard`. 
+We can allocate `pb_variables` on a protoboard, this will add a new variable at the next available index in the protoboard.
 
 ### Protoboard
 
@@ -91,8 +110,7 @@ A protoboard basically contains a R1CS, and an assignment to this R1CS:
     - An assignment for the R1CS: `r1cs_variable_assignment<FieldT> values;` (where `r1cs_variable_assignment` is defined as a vector of elements in the field F, see: `using r1cs_variable_assignment = std::vector<FieldT>;`in file `libsnark/relations/constraint_satisfaction_problems/r1cs/r1cs.hpp`)
     - A R1CS object: `r1cs_constraint_system<FieldT> constraint_system;`
 
-Note: The code gives us details on how primary and auxiliary input are stored on the protoboard
-
+**Note:** The implementation of the protoboard class gives us details on how primary and auxiliary input are stored on the protoboard. In fact, we can see that:
 ```
 template<typename FieldT>
 r1cs_variable_assignment<FieldT> protoboard<FieldT>::full_variable_assignment() const
@@ -115,7 +133,7 @@ r1cs_auxiliary_input<FieldT> protoboard<FieldT>::auxiliary_input() const
 
 Where `values` is a private member:
 ```
-r1cs_variable_assignment<FieldT> values; /* values[0] will hold the value of the first allocated variable of the protoboard, *NOT* constant 1 */
+r1cs_variable_assignment<FieldT> values;
 ```
 
 The input size set in the protoboard, via:
@@ -134,7 +152,11 @@ size_t r1cs_constraint_system<FieldT>::num_inputs() const
 ```
 Which is the function called by `protoboard.num_inputs()`.
 
+-----------------------------------------
+
 Thus, the value set by: `set_input_sizes(const size_t primary_input_size);` defines the shift that enables to differentiate between primary and auxiliary input.
+
+-----------------------------------------
 
 ### Gadget
 
@@ -151,45 +173,22 @@ public:
 };
 ```
 
-tells us that a gadget, is nothing else other than a protoboard, with an annotation.
+tells us that a gadget, basically is a protoboard, with an annotation.
 
 ### Conclusion
 
-All in all, we saw that a gadget is just a protoboard with "a name". A protoboard is simply a Rank-1 Constraints System.
+All in all, we saw that a gadget is a protoboard with "a name". 
+A protoboard is "simply" a Rank-1 Constraints System.
 
-Note: A gadget can even be built directly from a R1CS. This logic is implemented in: `libsnark/gadgetlib1/gadget_from_r1cs.tcc`
-
-## Additional notes about some basic gadgets
-
-### Packing gadget
-
-This gadget enables to "pack" several bits into a field element.
-
-## Generic Group Model (GG)
-
-The generic group model was proposed by Shoup to give exact bounds on the difficulty of the discrete logarithm problem and the Diffie-Hellman problem in the situation where the attacker has no information about the specific representation of the group being used.
-
-In other words the attacker is trying to solve a discrete logarithm (or Diffie-Hellman) problem in a group isomorphic to `C_p` but does not know whether this group is realised as, say, a multiplicative group or as an elliptic curve group.
-
-The generic group model suffers from some of the same problems as the random oracle model. In particular, it has been shown using a similar argument that there exist cryptographic schemes which are provably secure in the generic group model but which are trivially insecure once the random group encoding is replaced with an efficiently computable instantiation of the encoding function.
-
-## Glossary
-
-- BACS: Bilinear Arithmetic Circuit Satisfiability
-- USCS: Unitary-Square Constraint Systems
-- TBCS: Two-input Boolean Circuit Satisfiability
-
-### Notes
-
-- zkSNARK for database membership:
-Using Merkle trees, she could instead put a Merkle root commitment in the instance; a Merkle verification path in the witness; and a Merkle path check in the condition. That way Bob does not need to have access to the entire database to be able to carry out the verification. He can just verify by checking the merkle verification path and the merkle root.
-
-- When we have binary values, the constraint on these values is that we want to make sure they belong to {0, 1}
-- Same applies for all fields elements regardless of the field we operate on. We need to verify that the elements are in the field.
+**Note:** A gadget can even be built directly from a R1CS. This logic is implemented in: `libsnark/gadgetlib1/gadget_from_r1cs.tcc`
 
 ## Compile the project and run the tests for the gagdet
 
-1. In order to compile the project, run:
+Additional explanations on how to build the gadget are given directly in the code source.
+
+## Compile the project
+
+In order to compile the project, run:
 ```
 mkdir build
 cd build
@@ -211,7 +210,11 @@ CPPFLAGS=-I/usr/local/opt/openssl/include LDFLAGS=-L/usr/local/opt/openssl/lib P
 
 make
 ```
-2. Run the project:
+
+## Run the project:
+
+In order to run the test of the `cubic_gadget`, run:
+
 ```
 ./build/src/main
 ```
