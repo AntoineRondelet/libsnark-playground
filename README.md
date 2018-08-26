@@ -8,7 +8,7 @@ In: [/src/cubic_gadget](https://github.com/AntoineRondelet/libsnark-playground/b
 
 **[WARNING] DO NOT use any of these gadgets into production**.
 
-I'm always happy to have feedback or contributions if you spot mistakes, or dummy things hat could be improved.
+I'm always happy to have feedback or contributions if you spot mistakes, or dummy things that could be improved.
 
 ## References
 
