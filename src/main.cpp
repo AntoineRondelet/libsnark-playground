@@ -1,32 +1,54 @@
-#include <cassert>
+#include <stdexcept>
 
 #include <libff/algebra/curves/alt_bn128/alt_bn128_pp.hpp>
 #include <libsnark/zk_proof_systems/ppzksnark/r1cs_ppzksnark/r1cs_ppzksnark.hpp>
 
-#include "cubic_gadget.cpp"
+#include "generic_cubic_gadget.cpp"
 
 template<typename ppT>
-bool cubic_gadget_test(libff::bit_vector x_bits) {
+bool generic_cubic_gadget_test(
+        libff::bit_vector coeff_A,
+        libff::bit_vector coeff_B,
+        libff::bit_vector coeff_C,
+        libff::bit_vector coeff_D,
+        libff::bit_vector coeff_E,
+        libff::bit_vector x_bits
+){
     typedef libff::Fr<ppT> FieldT;
     libsnark::protoboard<FieldT> pb;
 
-    // We get the field element corresponding to the bits x_bits
-    // And we assign this value to the sol_x protoboard variable
-    // which contains the secret value x that is supposed to satisfy x**3 + x + 5 == 35
+    // First of all we need to allocate the primary input (public)
+    // on the protoboard, because, the protoboard stores variables like:
+    // |P_I_1|P_I_2|P_I_3||A_I_1|A_I_2|
+    //                    ^
+    //                    |_ where this position (separation between primary and auxiliary input)
+    //                       is given by N in the function pb.set_input_sizes(N);
+    const std::vector<FieldT> field_coefficients = {
+        field_element_from_bits(pb, coeff_A), 
+        field_element_from_bits(pb, coeff_B),
+        field_element_from_bits(pb, coeff_C), 
+        field_element_from_bits(pb, coeff_D),
+        field_element_from_bits(pb, coeff_E)
+    };
+    libsnark::pb_variable_array<FieldT> coefficients;    
+    coefficients.allocate(pb, field_coefficients.size());
+    coefficients.fill_with_field_elements(pb, field_coefficients);
+
+    // Now we can allocate the auxiliary input to the protoboard
     libsnark::pb_variable<FieldT> sol_x;
     FieldT sol_x_value = field_element_from_bits(pb, x_bits);
     sol_x.allocate(pb);
     pb.val(sol_x) = sol_x_value;
 
+    // Now we specify the primary and auxiliary inputs
+    // Primary input: field_coefficients
+    // Auxiliary input: sol_x
+    pb.set_input_sizes(field_coefficients.size());
+
     // Setup the tested gadget
-    cubic_gadget<FieldT> tested_gadget(pb, sol_x);
+    generic_cubic_gadget<FieldT> tested_gadget(pb, coefficients, sol_x);
     tested_gadget.generate_r1cs_constraints();
     tested_gadget.generate_r1cs_witness();
-
-    // No public input: This circuit we built is only working for the statement x**3 + x + 5 == 35
-    // Thus all inputs are private, as they represent the witness 
-    // (input value and intermediate value of the wires)
-    pb.set_input_sizes(0);
 
     bool is_valid_witness = pb.is_satisfied();
     if(is_valid_witness == false) {
@@ -60,23 +82,73 @@ int main() {
     ppT::init_public_params();
     bool res_test = false;
 
-    std::cout << "Start tests..." << std::endl;
+    std::cout << " === Start tests... === " << std::endl;
 
-    // Bad private input variable: wrong_sol_x_bits does not satisfy the constraints
-    // In fact: 4**3 + 4 + 5 = 64 + 4 + 5 = 73 =/= 35 !!
-    libff::bit_vector wrong_sol_x_bits = {0, 0, 1}; // 4 in binary (little endianness)
-    res_test = cubic_gadget_test<ppT>(wrong_sol_x_bits);
-    assert(res_test == false);
-    std::cout << "Value of res_test: " << res_test << std::endl;
+    // We encode the statement: x**3 + x + 5 = 35
+    // with sol_x = 3
+    // This test SHOULD PASS
+    libff::bit_vector coeff_A_bits = {1};
+    libff::bit_vector coeff_B_bits = {0};
+    libff::bit_vector coeff_C_bits = {1};
+    libff::bit_vector coeff_D_bits = {1, 0, 1};
+    libff::bit_vector coeff_E_bits = {1, 1, 0, 0, 0, 1};
+    libff::bit_vector sol_x_bits = {1, 1};
+    res_test = generic_cubic_gadget_test<ppT>(
+        coeff_A_bits,
+        coeff_B_bits,
+        coeff_C_bits,
+        coeff_D_bits,
+        coeff_E_bits,
+        sol_x_bits
+    );
+    if (res_test == false) {
+        throw std::invalid_argument("The argument a valid solution to the equation but the test does not pass");
+    }
 
-    // Valid private input variable: good_sol_x_bits satisfies the constraints
-    // In fact: 3**3 + 3 + 5 = 27 + 3 + 5 = 35
-    libff::bit_vector good_sol_x_bits = {1, 1}; // 3 in binary (little endianness)
-    res_test = cubic_gadget_test<ppT>(good_sol_x_bits);
-    assert(res_test == true);
-    std::cout << "Value of res_test: " << res_test << std::endl;
+    // We encode the statement: 4*x**3 + 2*x + 7 = 2071
+    // with sol_x = 8
+    // This test SHOULD PASS
+    coeff_A_bits = {0, 0, 1};
+    coeff_B_bits = {0};
+    coeff_C_bits = {0, 1};
+    coeff_D_bits = {1, 1, 1};
+    coeff_E_bits = {1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1};
+    sol_x_bits = {0, 0, 0, 1};
+    res_test = generic_cubic_gadget_test<ppT>(
+        coeff_A_bits,
+        coeff_B_bits,
+        coeff_C_bits,
+        coeff_D_bits,
+        coeff_E_bits,
+        sol_x_bits
+    );
+    if (res_test == false) {
+        throw std::invalid_argument("The argument a valid solution to the equation but the test does not pass");
+    }
 
-    std::cout << "End of tests" << std::endl;
+    // We encode the statement: 4*x**3 + 2*x + 7 = 2071
+    // with sol_x = 16
+    // This test SHOULD NOT PASS
+    coeff_A_bits = {0, 0, 1};
+    coeff_B_bits = {0};
+    coeff_C_bits = {0, 1};
+    coeff_D_bits = {1, 1, 1};
+    coeff_E_bits = {1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1};
+    sol_x_bits = {0, 0, 0, 0, 1};
+    res_test = generic_cubic_gadget_test<ppT>(
+        coeff_A_bits,
+        coeff_B_bits,
+        coeff_C_bits,
+        coeff_D_bits,
+        coeff_E_bits,
+        sol_x_bits
+    );
+    if (res_test == true) {
+        throw std::invalid_argument("The argument is not a valid solution to the equation and the test pass");
+    }
+
+    std::cout << " === End of tests === " << std::endl;
+    std::cout << "All tests PASSED" << std::endl;
 
     return 0;
 }
