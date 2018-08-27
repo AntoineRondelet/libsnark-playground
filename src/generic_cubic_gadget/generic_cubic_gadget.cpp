@@ -25,15 +25,7 @@
  **/ 
 
 #include <libsnark/gadgetlib1/gadget.hpp>
-
-template<typename FieldT>
-FieldT field_element_from_bits(libsnark::protoboard<FieldT> &pb, libff::bit_vector field_element_bits) {
-    libsnark::pb_variable_array<FieldT> array_bits;
-    array_bits.allocate(pb, field_element_bits.size(), "final_coeff_bits");
-    array_bits.fill_with_bits(pb, field_element_bits);
-    auto field_value = array_bits.get_field_element_from_bits(pb);
-    return field_value;
-}
+#include "utils.hpp"
 
 /*
  * This gadget is made to prove the knowledge of x such that: 

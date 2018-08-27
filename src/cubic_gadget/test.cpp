@@ -1,4 +1,4 @@
-#include <cassert>
+#include <stdexcept>
 
 #include <libff/algebra/curves/alt_bn128/alt_bn128_pp.hpp>
 #include <libsnark/zk_proof_systems/ppzksnark/r1cs_ppzksnark/r1cs_ppzksnark.hpp>
@@ -6,7 +6,7 @@
 #include "cubic_gadget.cpp"
 
 template<typename ppT>
-bool cubic_gadget_test(libff::bit_vector x_bits) {
+bool cubic_gadget_test_iteration(libff::bit_vector x_bits) {
     typedef libff::Fr<ppT> FieldT;
     libsnark::protoboard<FieldT> pb;
 
@@ -55,28 +55,32 @@ bool cubic_gadget_test(libff::bit_vector x_bits) {
 }
 
 
-int main() {
+int run_cubic_gadget_tests() {
     typedef libff::alt_bn128_pp ppT;    
     ppT::init_public_params();
     bool res_test = false;
 
-    std::cout << "Start tests..." << std::endl;
+    std::cout << "[Test: cubic_gadget] Start tests" << std::endl;
 
     // Bad private input variable: wrong_sol_x_bits does not satisfy the constraints
     // In fact: 4**3 + 4 + 5 = 64 + 4 + 5 = 73 =/= 35 !!
+    // SHOULD NOT PASS
     libff::bit_vector wrong_sol_x_bits = {0, 0, 1}; // 4 in binary (little endianness)
-    res_test = cubic_gadget_test<ppT>(wrong_sol_x_bits);
-    assert(res_test == false);
-    std::cout << "Value of res_test: " << res_test << std::endl;
+    res_test = cubic_gadget_test_iteration<ppT>(wrong_sol_x_bits);
+    if (res_test == true) {
+        throw std::invalid_argument("The argument is not a valid solution to the equation BUT the test pass");
+    }
 
     // Valid private input variable: good_sol_x_bits satisfies the constraints
     // In fact: 3**3 + 3 + 5 = 27 + 3 + 5 = 35
+    // SHOULD PASS
     libff::bit_vector good_sol_x_bits = {1, 1}; // 3 in binary (little endianness)
-    res_test = cubic_gadget_test<ppT>(good_sol_x_bits);
-    assert(res_test == true);
-    std::cout << "Value of res_test: " << res_test << std::endl;
+    res_test = cubic_gadget_test_iteration<ppT>(good_sol_x_bits);
+    if (res_test == false) {
+        throw std::invalid_argument("The argument is a valid solution to the equation BUT the test does not pass");
+    }
 
-    std::cout << "End of tests" << std::endl;
+    std::cout << "[Test: cubic_gadget] End of tests" << std::endl;
 
     return 0;
 }
